@@ -155,6 +155,7 @@ export default {
         }
         if (res.status === 401 || res.status === 402) break; // key/credit problem: other models won't help
       }
+      if (safety !== 'ok') return json({ reply: 'I could not reach the AI just now, but please do not wait on me. If you are in danger right now, call 112 or 10111.' + HELP_BLOCK, safety }, 200, origin);
       return json({ error: 'down' }, 502, origin);
     }
 
