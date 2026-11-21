@@ -1,12 +1,13 @@
 // BRO, WHAT?! API - Cloudflare Worker. PixelProTech Solutions (Pty) Ltd.
-// Secrets/vars needed: OPENROUTER_API_KEY (secret), OPENROUTER_MODEL (text).
+// Secrets/vars: OPENROUTER_API_KEY (secret), OPENROUTER_MODEL (comma-separated model IDs, tried in order).
 // No message text is logged or stored anywhere in this file. Keep it that way.
 
 const ALLOWED_ORIGINS = ['https://pixelprotech-za.github.io'];
 const MAX_CHARS = 2000;
 const MAX_TURNS = 12;
-const RATE_LIMIT = 10;      // requests per window per IP (best effort, per isolate)
+const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60000;
+const MODEL_TIMEOUT_MS = 20000;
 
 const hits = new Map();
 
@@ -17,7 +18,8 @@ Rules:
 - Sexual health: factual and age-appropriate. Never produce sexual content or explicit roleplay. Refuse anything sexual involving minors.
 - If someone may be in danger, being abused, or thinking of self-harm or suicide: respond with care first, encourage reaching a trusted person and a helpline. Never give methods.
 - Never claim to be human. Never ask for names, addresses, ID numbers or phone numbers.
-- If unsure, say so.`;
+- If unsure, say so.
+- Reply with the answer only. Do not show your reasoning or notes.`;
 
 const URGENT_RE = /(kill(ing)? myself|suicid|end my life|want to die|don'?t want to (live|be here)|self.?harm|cut(ting)? myself|hurt myself|raped|rape me|molest|sexually abus|abus(es|ed|ing) me|hits me|beat(s|ing) me|forced me)/i;
 const THREAT_RE = /(going to (kill|hurt|shoot|stab)|want to (kill|hurt) (him|her|them|someone|people))/i;
@@ -64,8 +66,44 @@ function cleanMessages(raw) {
     if (!c || c.length > MAX_CHARS) return null;
     out.push({ role: m.role, content: c });
   }
-  if (out[out.length - 1].role !== 'user') return null;
+  if (out[0].role !== 'user') out.shift();
+  if (!out.length || out[out.length - 1].role !== 'user') return null;
   return out;
+}
+
+// Some free models reject a "system" role, so the rules ride inside the first user turn.
+function withRules(messages) {
+  const copy = messages.map(m => ({ ...m }));
+  copy[0].content = SYSTEM + '\n\n---\nUser:\n' + copy[0].content;
+  return copy;
+}
+
+async function askModel(model, messages, key) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), MODEL_TIMEOUT_MS);
+  try {
+    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://pixelprotech-za.github.io/BRO-WHAT-/',
+        'X-Title': 'BRO, WHAT?!',
+      },
+      body: JSON.stringify({ model, max_tokens: 600, messages }),
+    });
+    if (!r.ok) return { ok: false, status: r.status };
+    const data = await r.json();
+    const text = data && data.choices && data.choices[0] && data.choices[0].message
+      && data.choices[0].message.content;
+    if (typeof text !== 'string' || !text.trim()) return { ok: false, status: 0 };
+    return { ok: true, text: text.trim() };
+  } catch {
+    return { ok: false, status: 0 };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export default {
@@ -76,20 +114,19 @@ export default {
     if (req.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
-    // Browsers always send Origin on cross-site POST. Block foreign sites.
     if (origin && !ALLOWED_ORIGINS.includes(origin)) {
       return json({ error: 'forbidden' }, 403, origin);
     }
 
-    const configured = !!(env.OPENROUTER_API_KEY && env.OPENROUTER_MODEL);
+    const models = String(env.OPENROUTER_MODEL || '').split(',').map(s => s.trim()).filter(Boolean);
+    const configured = !!(env.OPENROUTER_API_KEY && models.length);
 
     if (url.pathname === '/api/status' && req.method === 'GET') {
       return json({ service: 'BRO, WHAT?!', status: 'online', configured }, 200, origin);
     }
 
     if (url.pathname === '/api/feedback' && req.method === 'POST') {
-      // Intentionally stores nothing.
-      return json({ ok: true }, 200, origin);
+      return json({ ok: true }, 200, origin); // stores nothing
     }
 
     if (url.pathname === '/api/chat' && req.method === 'POST') {
@@ -108,36 +145,17 @@ export default {
       if (THREAT_RE.test(last)) safety = 'threat';
       else if (URGENT_RE.test(last)) safety = 'urgent';
 
-      let r;
-      try {
-        r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + env.OPENROUTER_API_KEY,
-            'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://pixelprotech-za.github.io/BRO-WHAT-/',
-            'X-Title': 'BRO, WHAT?!',
-          },
-          body: JSON.stringify({
-            model: env.OPENROUTER_MODEL,
-            max_tokens: 600,
-            messages: [{ role: 'system', content: SYSTEM }, ...messages],
-          }),
-        });
-      } catch {
-        return json({ error: 'down' }, 502, origin);
+      const payload = withRules(messages);
+      for (const model of models) {
+        const res = await askModel(model, payload, env.OPENROUTER_API_KEY);
+        if (res.ok) {
+          let reply = res.text;
+          if (safety !== 'ok') reply += HELP_BLOCK;
+          return json({ reply, safety }, 200, origin);
+        }
+        if (res.status === 401 || res.status === 402) break; // key/credit problem: other models won't help
       }
-      if (!r.ok) return json({ error: 'down' }, 502, origin);
-
-      let data;
-      try { data = await r.json(); } catch { return json({ error: 'down' }, 502, origin); }
-      let reply = data && data.choices && data.choices[0] && data.choices[0].message
-        && data.choices[0].message.content;
-      if (typeof reply !== 'string' || !reply.trim()) return json({ error: 'down' }, 502, origin);
-
-      reply = reply.trim();
-      if (safety !== 'ok') reply += HELP_BLOCK;
-      return json({ reply, safety }, 200, origin);
+      return json({ error: 'down' }, 502, origin);
     }
 
     return json({ error: 'not_found' }, 404, origin);
