@@ -8,6 +8,7 @@ const MAX_TURNS = 12;
 const RATE_LIMIT = 10;
 const RATE_WINDOW_MS = 60000;
 const MODEL_TIMEOUT_MS = 20000;
+const FIRST_TOKEN_MS = 9000; // streaming: give a model 9s to start talking, else try the next one
 
 const hits = new Map();
 
@@ -33,6 +34,7 @@ function corsHeaders(origin) {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'content-type',
     'Access-Control-Max-Age': '86400',
+    'Access-Control-Expose-Headers': 'X-Safety',
     'Vary': 'Origin',
     'Cache-Control': 'no-store',
   };
@@ -106,6 +108,50 @@ async function askModel(model, messages, key) {
   }
 }
 
+// Streaming: returns as soon as the model produces its first words.
+async function openStream(model, messages, key) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FIRST_TOKEN_MS);
+  try {
+    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Authorization': 'Bearer ' + key,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://pixelprotech-za.github.io/BRO-WHAT-/',
+        'X-Title': 'BRO, WHAT?!',
+      },
+      body: JSON.stringify({ model, max_tokens: 500, stream: true, messages }),
+    });
+    if (!r.ok || !r.body) { clearTimeout(timer); return { ok: false, status: r.status }; }
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '';
+    const nextDelta = async () => {
+      for (;;) {
+        let nl;
+        while ((nl = buf.indexOf('\n')) >= 0) {
+          const line = buf.slice(0, nl).trim(); buf = buf.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const d = line.slice(5).trim();
+          if (d === '[DONE]') return null;
+          try { const t = JSON.parse(d).choices[0].delta.content; if (t) return t; } catch {}
+        }
+        const { done, value } = await reader.read();
+        if (done) return null;
+        buf += dec.decode(value, { stream: true });
+      }
+    };
+    const first = await nextDelta();
+    clearTimeout(timer);
+    if (first === null) return { ok: false, status: 0 };
+    return { ok: true, first, nextDelta, cancel: () => reader.cancel().catch(() => {}) };
+  } catch {
+    clearTimeout(timer);
+    return { ok: false, status: 0 };
+  }
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -146,6 +192,32 @@ export default {
       else if (URGENT_RE.test(last)) safety = 'urgent';
 
       const payload = withRules(messages);
+
+      if (body && body.stream === true) {
+        for (const model of models) {
+          const st = await openStream(model, payload, env.OPENROUTER_API_KEY);
+          if (st.ok) {
+            const enc = new TextEncoder();
+            const stream = new ReadableStream({
+              async start(c) {
+                try {
+                  c.enqueue(enc.encode(st.first));
+                  for (;;) { const t = await st.nextDelta(); if (t === null) break; c.enqueue(enc.encode(t)); }
+                  if (safety !== 'ok') c.enqueue(enc.encode(HELP_BLOCK));
+                  c.close();
+                } catch { try { c.close(); } catch {} }
+              },
+              cancel() { st.cancel(); },
+            });
+            return new Response(stream, { status: 200, headers: {
+              ...corsHeaders(origin), 'content-type': 'text/plain; charset=utf-8', 'X-Safety': safety } });
+          }
+          if (st.status === 401 || st.status === 402) break;
+        }
+        if (safety !== 'ok') return json({ reply: 'I could not reach the AI just now, but please do not wait on me. If you are in danger right now, call 112 or 10111.' + HELP_BLOCK, safety }, 200, origin);
+        return json({ error: 'down' }, 502, origin);
+      }
+
       for (const model of models) {
         const res = await askModel(model, payload, env.OPENROUTER_API_KEY);
         if (res.ok) {
