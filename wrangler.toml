@@ -1,0 +1,12 @@
+name = "bro-what-api"
+main = "api-worker.js"
+compatibility_date = "2024-11-01"
+
+# Optional anonymous stats: create a KV namespace, then uncomment and paste its id.
+# [[kv_namespaces]]
+# binding = "STATS"
+# id = "PASTE_KV_ID_HERE"
+
+[vars]
+ALLOWED_ORIGIN = "https://pixelprotech-za.github.io"
+OPENROUTER_MODEL = "PUT_YOUR_MODEL_ID_HERE"

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta name="api-base" content=""><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>BRO, WHAT?! Admin</title>
 <style>
 :root{--bg:#1c1d1f;--panel:#26282b;--line:#3a3d41;--mute:#b4b8bd;--lime:#c6ff3d}
@@ -27,7 +27,7 @@ const $=id=>document.getElementById(id);let pw=sessionStorage.getItem('bwpw')||'
 const bars=o=>{const e=Object.entries(o).sort((a,b)=>b[1]-a[1]),m=Math.max(1,...e.map(x=>x[1]));return e.length?e.map(([k,v])=>`<div class="bar"><b>${k}</b><i style="width:${v/m*55}%"></i>${v}</div>`).join(''):'<span class="l">No data yet</span>'};
 async function load(){
  const q=new URLSearchParams({from:$('from').value,to:$('to').value,category:$('cat').value,model:$('mod').value});
- const r=await fetch('/api/admin/stats?'+q,{headers:{Authorization:'Bearer '+pw}});
+ const r=await fetch(((document.querySelector('meta[name=api-base]')||{}).content||'').replace(/\/$/,'')+'/api/admin/stats?'+q,{headers:{Authorization:'Bearer '+pw}});
  if(!r.ok){$('msg').textContent='Sign-in failed, or ADMIN_PASSWORD is not set on the server.';return}
  sessionStorage.setItem('bwpw',pw);const s=await r.json();$('flt').hidden=false;$('msg').textContent='Aggregate numbers only. No message text is stored.';
  if($('cat').options.length<2)['GENERAL','SEXUAL_HEALTH','SEXUAL_EDUCATION','BODY_HEALTH','ANAL_HEALTH','RELATIONSHIPS','MENTAL_WELLBEING','EMBARRASSING_QUESTION','VIOLENCE','SELF_HARM','ABUSE','MEDICAL_URGENT','POLITICAL','HISTORICAL','OTHER','UNCERTAIN'].forEach(c=>$('cat').add(new Option(c,c)));
