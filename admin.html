@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BRO, WHAT?! Admin</title>
+<style>
+:root{--bg:#1c1d1f;--panel:#26282b;--line:#3a3d41;--mute:#b4b8bd;--lime:#c6ff3d}
+body{margin:0;background:var(--bg);color:#fff;font:15px/1.5 "Trebuchet MS",system-ui,sans-serif;padding:20px;max-width:980px;margin:auto}
+h1{font:900 1.6rem "Arial Black",sans-serif}h2{font-size:1rem;margin:0 0 10px;color:var(--lime)}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+.c{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+.n{font:900 1.8rem "Arial Black",sans-serif}.l{color:var(--mute);font-size:.85rem}
+.bar{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:.85rem}.bar i{display:block;height:12px;background:var(--lime);border-radius:6px;min-width:3px}
+.bar b{width:170px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+input,select,button{background:var(--panel);color:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;font:inherit}
+button{background:var(--lime);color:#10120a;font-weight:800;border:0;cursor:pointer}
+table{width:100%;border-collapse:collapse;font-size:.85rem}td,th{padding:6px;border-bottom:1px solid var(--line);text-align:left}
+.f{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+</style></head><body>
+<h1>BRO, WHAT?! admin</h1>
+<div class="f"><input id="pw" type="password" placeholder="Admin password" aria-label="Admin password"><button id="in">Sign in</button></div>
+<div class="f" id="flt" hidden>
+<input type="date" id="from" aria-label="From"><input type="date" id="to" aria-label="To">
+<select id="cat"><option value="">All categories</option></select><select id="mod"><option value="">All models</option></select><button id="ap">Apply</button></div>
+<p class="l" id="msg">Aggregate numbers only. No message text is stored.</p>
+<div id="out"></div>
+<script>
+const $=id=>document.getElementById(id);let pw=sessionStorage.getItem('bwpw')||'';
+const bars=o=>{const e=Object.entries(o).sort((a,b)=>b[1]-a[1]),m=Math.max(1,...e.map(x=>x[1]));return e.length?e.map(([k,v])=>`<div class="bar"><b>${k}</b><i style="width:${v/m*55}%"></i>${v}</div>`).join(''):'<span class="l">No data yet</span>'};
+async function load(){
+ const q=new URLSearchParams({from:$('from').value,to:$('to').value,category:$('cat').value,model:$('mod').value});
+ const r=await fetch('/api/admin/stats?'+q,{headers:{Authorization:'Bearer '+pw}});
+ if(!r.ok){$('msg').textContent='Sign-in failed, or ADMIN_PASSWORD is not set on the server.';return}
+ sessionStorage.setItem('bwpw',pw);const s=await r.json();$('flt').hidden=false;$('msg').textContent='Aggregate numbers only. No message text is stored.';
+ if($('cat').options.length<2)['GENERAL','SEXUAL_HEALTH','SEXUAL_EDUCATION','BODY_HEALTH','ANAL_HEALTH','RELATIONSHIPS','MENTAL_WELLBEING','EMBARRASSING_QUESTION','VIOLENCE','SELF_HARM','ABUSE','MEDICAL_URGENT','POLITICAL','HISTORICAL','OTHER','UNCERTAIN'].forEach(c=>$('cat').add(new Option(c,c)));
+ Object.keys(s.models).forEach(m=>{if(![...$('mod').options].some(o=>o.value===m))$('mod').add(new Option(m,m))});
+ const card=(n,l)=>`<div class="c"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+ $('out').innerHTML=`<div class="g">${card(s.total,'Questions processed')}${card(s.failures,'API failures')}${card(s.avgLatency+' ms','Avg response time')}${card(s.tokens.toLocaleString(),'Tokens used')}${card(s.feedback.up+' / '+s.feedback.down,'Helpful / not')}</div>
+ <div class="two"><div class="c"><h2>Questions by category</h2>${bars(s.byCategory)}</div><div class="c"><h2>Trend: questions per day</h2>${bars(Object.fromEntries(Object.entries(s.byDay).sort()))}</div>
+ <div class="c"><h2>Safety flags</h2>${bars(s.safety)}</div><div class="c"><h2>Resource link usage</h2>${bars(s.resources)}</div></div>
+ <div class="c" style="margin-top:10px"><h2>Model performance</h2><table><tr><th>Model</th><th>Requests</th><th>Failures</th><th>Avg ms</th><th>Tokens</th></tr>${Object.entries(s.models).map(([m,x])=>`<tr><td>${m}</td><td>${x.n}</td><td>${x.fail}</td><td>${Math.round(x.ms/x.n)}</td><td>${x.tokens}</td></tr>`).join('')||'<tr><td colspan=5 class="l">No data yet</td></tr>'}</table></div>`}
+$('in').onclick=()=>{pw=$('pw').value;load()};$('ap').onclick=load;if(pw)load();
+</script></body></html>
