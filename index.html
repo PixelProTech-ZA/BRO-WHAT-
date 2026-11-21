@@ -94,15 +94,14 @@ async function attempt(){ // one try, gives up after 15s
  try{const r=await fetch(API+'/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:hist.slice(-6)}),signal:ac.signal});
   const j=await r.json().catch(()=>({}));return{ok:r.ok,j}}
  catch{return{ok:false,j:{error:'down'}}}finally{clearTimeout(tm)}}
-async function getReply(w){ // 2 tries max, keeps data use low, user sees live status
- const slow=setTimeout(()=>{w.innerHTML=DOTS+' Still thinking, hang on 🤔'},5000);
+async function getReply(w){ // 2 tries max, silent, the user only sees the dots
  let res;
  for(let i=0;i<2;i++){
   res=await attempt();
   if(res.ok||['bad','rate','setup'].includes(res.j.error))break;
-  if(i<1){w.innerHTML=DOTS+' One sec, trying again…';await wait(600)}
+  if(i<1)await wait(600)
  }
- clearTimeout(slow);return res}
+ return res}
 async function send(override){
  const text=(typeof override==='string'?override:t.value).trim();if(!text||busy)return;busy=true;go.disabled=true;
  $('hero').style.display='none';const me=add('me',esc(text));hist.push({role:'user',content:text});t.value='';
