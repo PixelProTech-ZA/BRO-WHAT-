@@ -7,6 +7,7 @@ const C = {
   fallback: process.env.OPENROUTER_FALLBACK_MODEL,
   admin: process.env.ADMIN_PASSWORD,
   timeout: +process.env.TIMEOUT_MS || 25000,
+  origin: process.env.ALLOWED_ORIGIN,             // e.g. https://pixelprotech-za.github.io (only if frontend is hosted elsewhere)
 };
 const configured = () => !!(C.key && C.model);
 
@@ -100,15 +101,30 @@ function stats(q) {
     safety: count(e => e.safety), resources: count(e => e.urls), models,
     feedback: { up: fb.filter(e => e.feedback === 'up').length, down: fb.filter(e => e.feedback === 'down').length } };
 }
-const FILES = { '/': 'index.html', '/admin': 'admin.html' };
+const PUB = fs.existsSync(path.join(__dirname, 'public')) ? path.join(__dirname, 'public') : __dirname;
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/manifest+json',
+  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const PAGES = { '/': 'index.html', '/admin': 'admin.html' };
+const STATIC = new Set(['index.html', 'manifest.json', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']);
 http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://x');
   res.setHeader('X-Content-Type-Options', 'nosniff'); res.setHeader('Referrer-Policy', 'no-referrer');
+  if (C.origin && req.headers.origin === C.origin) {
+    res.setHeader('Access-Control-Allow-Origin', C.origin); res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type, authorization'); res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  }
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
   if (req.method === 'POST' && u.pathname === '/api/chat') return chat(req, res);
   if (req.method === 'GET' && u.pathname === '/api/status') return send(res, 200, { configured: configured() });
   if (req.method === 'POST' && u.pathname === '/api/feedback') { try { const b = await readJSON(req); if (['up', 'down'].includes(b.value)) log({ feedback: b.value }); } catch {} return send(res, 200, {}); }
   if (u.pathname === '/api/admin/stats') return authed(req) ? send(res, 200, stats(u.searchParams)) : send(res, 401, { error: 'auth' });
-  const f = FILES[u.pathname];
-  if (f) { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(fs.readFileSync(path.join(__dirname, 'public', f))); }
+  const name = PAGES[u.pathname] || (STATIC.has(u.pathname.slice(1)) ? u.pathname.slice(1) : null);
+  if (name && req.method === 'GET') {
+    try {
+      const h = { 'content-type': TYPES[path.extname(name)] || 'application/octet-stream' };
+      if (name === 'sw.js') h['cache-control'] = 'no-cache'; // always check for a new service worker
+      res.writeHead(200, h); return res.end(fs.readFileSync(path.join(PUB, name)));
+    } catch { return send(res, 404, { error: 'not found' }); }
+  }
   send(res, 404, { error: 'not found' });
 }).listen(C.port, () => console.log(`BRO, WHAT?! on :${C.port} | AI ${configured() ? 'configured' : 'NOT configured (set OPENROUTER_API_KEY and OPENROUTER_MODEL)'} | admin ${C.admin ? 'on' : 'off (set ADMIN_PASSWORD)'}`));

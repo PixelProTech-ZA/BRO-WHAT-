@@ -2,7 +2,13 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>BRO, WHAT?! — No shame. Just answers.</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>❓</text></svg>">
+<meta name="theme-color" content="#1c1d1f">
+<meta name="api-base" content="">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
 :root{--bg:#1c1d1f;--panel:#26282b;--line:#3a3d41;--txt:#fff;--mute:#b4b8bd;--lime:#c6ff3d;--ink:#10120a}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
@@ -65,7 +71,10 @@ dialog::backdrop{background:#000a}dialog h2{margin-top:0}dialog li{margin:6px 0}
 <li>Your chats are never used as public examples or in marketing.</li></ul>
 <button class="go" onclick="pd.close()">Got it</button></dialog>
 <script>
-const API='https://bro-what-api.lindokuhlerojasmabika.workers.dev';
+const API=(document.querySelector('meta[name=api-base]').content||'').replace(/\/$/,'');
+if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+</script>
+<script>
 const $=id=>document.getElementById(id),log=$('log'),t=$('t'),go=$('go');
 const CATS=[['😂','Awkward Questions','Okay, this is awkward, but: '],['🍑','Body Questions','I have a question about my body: '],['❤️','Relationships','I have a relationship question: '],['😳','Sexual Health','I have a sexual health question: '],['🧠','Mental Wellbeing','I want to talk about how I feel: '],['💬','Life Questions','I have a life question: '],['🤔','Just Curious','I\'m just curious: '],['🩺','Health Concerns','I have a health concern: ']];
 CATS.forEach(([e,n,p])=>{const b=document.createElement('button');b.type='button';b.className='chip';b.textContent=e+' '+n;b.onclick=()=>{t.value=p;t.focus()};$('chips').append(b)});
